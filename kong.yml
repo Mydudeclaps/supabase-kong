@@ -63,6 +63,66 @@ services:
     plugins:
       - name: cors
 
+  ## Open OAuth 2.1 server routes (GoTrue as the authorization server for the hosted
+  ## staff MCP). AI clients (Claude, ChatGPT, Codex) call these without an apikey.
+  ## Exact-match regexes, so /auth/v1/oauth/authorizations/* (consent, needs the
+  ## user's JWT) and /auth/v1/oauth/grants stay behind key-auth below.
+  - name: auth-v1-open-oauth-authorize
+    url: http://$AUTH_HOST:9999/oauth/authorize
+    routes:
+      - name: auth-v1-open-oauth-authorize
+        strip_path: true
+        paths:
+          - /auth/v1/oauth/authorize$
+    plugins:
+      - name: cors
+  - name: auth-v1-open-oauth-token
+    url: http://$AUTH_HOST:9999/oauth/token
+    routes:
+      - name: auth-v1-open-oauth-token
+        strip_path: true
+        paths:
+          - /auth/v1/oauth/token$
+    plugins:
+      - name: cors
+  - name: auth-v1-open-oauth-register
+    url: http://$AUTH_HOST:9999/oauth/clients/register
+    routes:
+      - name: auth-v1-open-oauth-register
+        strip_path: true
+        paths:
+          - /auth/v1/oauth/clients/register$
+    plugins:
+      - name: cors
+  - name: auth-v1-open-well-known
+    url: http://$AUTH_HOST:9999/.well-known/
+    routes:
+      - name: auth-v1-open-well-known
+        strip_path: true
+        paths:
+          - /auth/v1/.well-known/
+    plugins:
+      - name: cors
+  ## RFC 8414 / OIDC path-inserted discovery for the issuer <origin>/auth/v1
+  - name: well-known-oauth-as-auth-v1
+    url: http://$AUTH_HOST:9999/.well-known/oauth-authorization-server
+    routes:
+      - name: well-known-oauth-as-auth-v1
+        strip_path: true
+        paths:
+          - /.well-known/oauth-authorization-server/auth/v1$
+    plugins:
+      - name: cors
+  - name: well-known-openid-auth-v1
+    url: http://$AUTH_HOST:9999/.well-known/openid-configuration
+    routes:
+      - name: well-known-openid-auth-v1
+        strip_path: true
+        paths:
+          - /.well-known/openid-configuration/auth/v1$
+    plugins:
+      - name: cors
+
   ## Secure Auth routes
   - name: auth-v1
     _comment: 'GoTrue: /auth/v1/* -> http://auth:9999/*'
