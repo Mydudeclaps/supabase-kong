@@ -76,6 +76,45 @@ services:
           - /auth/v1/oauth/authorize$
     plugins:
       - name: cors
+      - name: pre-function
+        # OAuth authorize guard (t-6cd5df). Allowlist must match the app consent page and
+        # staff_mcp_oauth_redirect_host; change all three together. No dollar signs: envsubst.
+        config: &oauth_authorize_guard
+          access:
+            - |
+              -- OAuth authorize guard (t-6cd5df). Kong 2.8.1 pre-function, access phase, untrusted_lua=sandbox.
+              -- No dollar signs anywhere: the image runs envsubst over kong.yml before Kong starts.
+              local ALLOWED = {
+                ["https://claude.ai/api/mcp/auth_callback"] = true,
+                ["https://claude.com/api/mcp/auth_callback"] = true,
+                ["https://chatgpt.com/connector_platform_oauth_redirect"] = true,
+              }
+              local function loopback(u)
+                local rest = u:match("^http://localhost(.*)") or u:match("^http://127%.0%.0%.1(.*)")
+                if not rest then return false end
+                if rest:sub(1, 1) == ":" then
+                  local port = rest:match("^:(%d+)")
+                  if not port or #port > 5 then return false end
+                  rest = rest:sub(#port + 2)
+                end
+                return rest == "" or (rest:sub(1, 1) == "/" and not rest:find("[?#]"))
+              end
+              local function refuse(msg)
+                return kong.response.exit(400, { error = "invalid_request", error_description = msg })
+              end
+              local path = kong.request.get_path():lower()
+                :gsub("%%(%x%x)", function(h) return string.char(tonumber(h, 16)) end)
+                :gsub("/+", "/")
+              if path:sub(-1) == "/" then path = path:sub(1, -2) end
+              if path ~= "/auth/v1/oauth/authorize" then return end
+              local q = kong.request.get_query(100)
+              local r, m, c = q.redirect_uri, q.code_challenge_method, q.code_challenge
+              if type(r) ~= "string" or not (ALLOWED[r] or loopback(r)) then
+                return refuse("redirect_uri is not an allowed callback")
+              end
+              if m ~= "S256" or type(c) ~= "string" or c == "" then
+                return refuse("PKCE with code_challenge_method=S256 is required")
+              end
   - name: auth-v1-open-oauth-token
     url: http://$AUTH_HOST:9999/oauth/token
     routes:
@@ -134,6 +173,9 @@ services:
           - /auth/v1/
     plugins:
       - name: cors
+      - name: pre-function
+        # Same guard on the key-auth catch-all, for path variants that miss the exact route.
+        config: *oauth_authorize_guard
       - name: key-auth
         config:
           hide_credentials: false
